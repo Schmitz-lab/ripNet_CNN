@@ -26,14 +26,14 @@ class RipNetCNN(nn.Module):
         nn.BatchNorm2d(64),
         nn.ReLU(),
 
-        nn.Conv2d(64, 256, kernel_size=3, stride=2, padding=1),
+        nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
         nn.BatchNorm2d(256),
         nn.ReLU(),
 
         nn.Dropout(0.25)
         )
 
-    # Compute output size after conv layers (optional: dynamic way shown below)
+    # Compute output size after conv layers
         dummy_input = torch.zeros(1, *input_shape)
         with torch.no_grad():
             out = self.features(dummy_input)
