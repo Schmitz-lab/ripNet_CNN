@@ -14,7 +14,7 @@ class RipNetCNN(nn.Module):
         super().__init__()
                 
         self.features = nn.Sequential(
-        nn.Conv2d(1, 16, kernel_size=1, stride=2, padding=0),  # same padding for 1x1 is 0
+        nn.Conv2d(1, 16, kernel_size=1, stride=1, padding=0),  # same padding for 1x1 is 0
         nn.BatchNorm2d(16),
         nn.ReLU(),
 
