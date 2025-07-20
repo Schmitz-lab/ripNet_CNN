@@ -11,9 +11,21 @@ import torch
 from torch.utils.data import Dataset
 import os
 import scipy.io
-from butter import lowpass
+from utils import lowpass
 
 class RippleDataset(Dataset):
+   
+    """
+    PyTorch Dataset for ripple detection.
+
+    Loads multi-channel LFP data and corresponding ripple annotations from .mat files,
+    segments them into fixed-length windows (with data augmentation), noramlizes and lowpass filters LFP data,
+    and assigns binary labels to each window based on annotations.
+
+    
+    Shift_range is maximum time shift (left/right) applied for data augmentation around ripple center.
+
+    """
     def __init__(self, data_path, annotations_path, fs=1250, chunk_len=416, shift_range=200):
         self.data_path = data_path
         self.annotations_path = annotations_path
@@ -21,7 +33,7 @@ class RippleDataset(Dataset):
         self.chunk_len = chunk_len
         self.shift_range = shift_range
         
-        self.X = []  # to store data chunks
+        self.X = []  # to store data chunks, which will be inputs to model
         self.Y = []  # to store binary labels
         
         self.prepare_dataset()
@@ -30,6 +42,7 @@ class RippleDataset(Dataset):
         half_win = self.chunk_len // 2
         full_win = self.chunk_len
 
+        # Get .mat data files, contain long (>30 min) segs of time x 8 channel data
         for name_data in os.listdir(self.data_path):
             if not name_data.endswith('.mat'):
                 continue
@@ -41,7 +54,7 @@ class RippleDataset(Dataset):
             if data.shape[1] < data.shape[0]:
                 data = data.T
 
-            # Match annotation file
+            # Match annotation file, which has ripple start and stop times in s
             found_labels = False
             for name_labels in os.listdir(self.annotations_path):
                 if not name_labels.endswith('.mat'):
@@ -56,7 +69,7 @@ class RippleDataset(Dataset):
             if not found_labels:
                 continue
 
-            # Optional: Load false positives if folder exists
+            # Load false positives if folder exists
             FPs = False
             FPTimes = []
             fp_folder = os.path.join(self.annotations_path, 'FPs')
@@ -70,12 +83,12 @@ class RippleDataset(Dataset):
             z_scored = np.zeros_like(data)
             for ch in range(data.shape[0]):
                 z_scored[ch] = (data[ch] - np.mean(data[ch])) / np.std(data[ch])
-            z_scored = lowpass(z_scored, self.fs // 4, self.fs)
+            z_scored = lowpass(z_scored, self.fs // 4, self.fs) #exclude spiking information and high frequency noise
 
             binary_trace = np.zeros(data.shape[1])
             x_pos, y_pos = [], []
 
-            # Generate positive samples
+            # Generate positive samples by cutting out data chunks surrounding ripples
             for t in timestamps:
                 start_dp = int(round(t[0] * self.fs))
                 stop_dp = int(round(t[1] * self.fs))
@@ -95,7 +108,7 @@ class RippleDataset(Dataset):
                         x_pos.append(chunk)
                         y_pos.append(binary_trace[chunk_start:chunk_stop])
 
-            # Generate negative samples
+            # Generate negative samples by randomly sampling not ripple periods
             x_neg, y_neg = [], []
             last_dp = int(timestamps[-1][-1] * self.fs)
             num_negs = len(x_pos) - len(FPTimes) if FPs else len(x_pos)
@@ -108,7 +121,8 @@ class RippleDataset(Dataset):
                         x_neg.append(chunk)
                         y_neg.append(np.zeros(full_win))
                         neg_count += 1
-
+        # Generate negative samples from annotated false positives,     
+        #teach model explicitly that these ripple imposters are not ripples
             if FPs:
                 for fp in FPTimes:
                     fp_dp = int(fp * self.fs)
@@ -119,7 +133,7 @@ class RippleDataset(Dataset):
                         x_neg.append(chunk)
                         y_neg.append(np.zeros(full_win))
 
-            # Combine pos and neg
+            # Combine pos and neg data chunks and labels
             X_all = np.concatenate([x_pos, x_neg], axis=0)
             Y_all = np.concatenate([y_pos, y_neg], axis=0)
 
